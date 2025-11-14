@@ -1,5 +1,5 @@
 import tkinter as tk
-from datetime import datetime
+from datetime import datetime, timedelta  # timedelta для корректного переноса минут/часов/дней
 import ctypes
 import os
 import configparser
@@ -11,6 +11,7 @@ except:
 
 CONFIG_FILE = "config.ini"
 
+
 class ClockOverlay:
     def __init__(self):
         self.root = tk.Tk()
@@ -21,7 +22,7 @@ class ClockOverlay:
         self.outer_height = 24
         self.border_width = 2
 
-        # ✅ Updated colors per request
+        # Цвета по вашим предпочтениям
         self.default_bg = "#f9c289"
         self.default_inner = "#fcd5ac"
         self.default_fg = "#85674e"
@@ -61,32 +62,43 @@ class ClockOverlay:
             self.outer_width // 2,
             self.outer_height // 2,
             text="00:00",
-            font=(self.font_name, 11, "normal"),
+            font=(self.font_name, 11, "normal"),  # non-bold
             fill=self.fg_color,
             anchor="center"
         )
 
-        # Context menu
+        # ——— Context menu —————————————————————————————————————————————————————
         self.context_menu = tk.Menu(self.root, tearoff=0)
 
-        # Font size submenu: 10–20 (as per your preference)
+        # Font size: 20 (top) → 10 (bottom), with checkmark
+        self.font_size = 11
         self.font_menu = tk.Menu(self.context_menu, tearoff=0)
-        for size in range(10, 21):
+        for size in reversed(range(10, 21)):
+            label = f"{'✓ ' if size == self.font_size else '  '}{size}"
             self.font_menu.add_command(
-                label=str(size),
+                label=label,
                 command=lambda s=size: self.set_font_size(s)
             )
         self.context_menu.add_cascade(label="Font size", menu=self.font_menu)
 
-        # Alpha submenu: 0–100% step 5
+        # Alpha: 100% (top) → 0% (bottom), with checkmark
+        self.alpha_percent = 100
         self.alpha_menu = tk.Menu(self.context_menu, tearoff=0)
-        for alpha in range(0, 101, 5):
+        for alpha in reversed(range(0, 101, 5)):
+            label = f"{'✓ ' if alpha == self.alpha_percent else '  '}{alpha}%"
             self.alpha_menu.add_command(
-                label=f"{alpha}%",
+                label=label,
                 command=lambda a=alpha: self.set_alpha(a)
             )
         self.context_menu.add_cascade(label="Alpha", menu=self.alpha_menu)
 
+        # Lock / Unlock
+        self.locked = False
+        self.lock_menu = tk.Menu(self.context_menu, tearoff=0)
+        self.context_menu.add_cascade(label="Lock / Unlock", menu=self.lock_menu)
+        self.update_lock_menu()
+
+        # ✅ About + separator + Exit
         self.context_menu.add_separator()
         self.context_menu.add_command(label="About", command=self.show_about)
         self.context_menu.add_separator()
@@ -100,6 +112,7 @@ class ClockOverlay:
 
         self.update_job = None
         self.dragging = False
+
         self.load_config()
         self.update_time()
         self.root.mainloop()
@@ -111,14 +124,38 @@ class ClockOverlay:
         finally:
             self.context_menu.grab_release()
 
+    # ——— Lock / Unlock ————————————————————————————————————————————————
+    def toggle_lock(self):
+        self.locked = not self.locked
+        self.update_lock_menu()
+        self.save_lock_state()
+
+    def update_lock_menu(self):
+        self.lock_menu.delete(0, "end")
+        if self.locked:
+            self.lock_menu.add_command(label="✓ Lock", command=self.toggle_lock)
+            self.lock_menu.add_command(label="  Unlock", command=self.toggle_lock)
+        else:
+            self.lock_menu.add_command(label="  Lock", command=self.toggle_lock)
+            self.lock_menu.add_command(label="✓ Unlock", command=self.toggle_lock)
+
+    def save_lock_state(self):
+        config = self._read_config()
+        if "window" not in config:
+            config["window"] = {}
+        config["window"]["locked"] = str(int(self.locked))
+        self._write_config(config)
+
     # ——— Movement & auto-save —————————————————————————————————————————————
     def start_move(self, event):
+        if self.locked:
+            return
         self.dragging = True
         self.start_x = event.x
         self.start_y = event.y
 
     def do_move(self, event):
-        if not self.dragging:
+        if not self.dragging or self.locked:
             return
         x = self.root.winfo_x() + (event.x - self.start_x)
         y = self.root.winfo_y() + (event.y - self.start_y)
@@ -187,50 +224,84 @@ class ClockOverlay:
         screen_width = self.root.winfo_screenwidth()
         screen_height = self.root.winfo_screenheight()
 
-        # ✅ Fixed: 260px from bottom (was 258)
+        # ✅ Position: 42px from right, 260px from bottom
         x = screen_width - self.outer_width - 42
         y = screen_height - self.outer_height - 260
+
         font_size = 11
         alpha_percent = 100
         bg_color = self.default_bg
         inner_color = self.default_inner
         fg_color = self.default_fg
+        locked = False
 
         if "window" in config:
             x = config.getint("window", "x", fallback=x)
             y = config.getint("window", "y", fallback=y)
-            font_size = config.getint("window", "font_size", fallback=font_size)
-            alpha_percent = config.getint("window", "alpha", fallback=alpha_percent)
+            font_size = max(10, min(20, config.getint("window", "font_size", fallback=font_size)))
+            alpha_percent = max(0, min(100, config.getint("window", "alpha", fallback=alpha_percent)))
             bg_color = config.get("window", "bg_color", fallback=bg_color)
             inner_color = config.get("window", "inner_color", fallback=inner_color)
             fg_color = config.get("window", "fg_color", fallback=fg_color)
+            locked = bool(int(config.get("window", "locked", fallback="0")))
 
-        # Apply loaded values
+        # Apply
         self.bg_color = bg_color
         self.inner_color = inner_color
         self.fg_color = fg_color
+        self.locked = locked
+        self.font_size = font_size
+        self.alpha_percent = alpha_percent
+
         self.canvas.config(bg=self.bg_color)
         self.canvas.itemconfig(self.rect_id, fill=self.inner_color)
         self.canvas.itemconfig(self.text_id, fill=self.fg_color)
         self.set_position(x, y)
         self.set_font_size(font_size)
         self.set_alpha(alpha_percent, save=False)
+        self.update_font_menu()
+        self.update_alpha_menu()
+        self.update_lock_menu()
 
-        # ✅ Ensure config.ini is created/updated on first run
-        self.save_position()
+        # Save full state on first launch
         self._save_colors()
+        self._save_font_size_only(font_size)
+        self._save_alpha(alpha_percent)
+        self.save_position()
+        self.save_lock_state()
 
-    # ——— Font & Alpha control ——————————————————————————————————————————
+    # ——— Font & Alpha ————————————————————————————————————————————————
     def set_font_size(self, size):
         self.font_size = size
         self.canvas.itemconfig(self.text_id, font=(self.font_name, size, "normal"))
         self._save_font_size_only(size)
+        self.update_font_menu()
 
     def set_alpha(self, alpha_percent, save=True):
         alpha = max(0, min(100, alpha_percent)) / 100.0
         self.root.attributes("-alpha", alpha)
+        self.alpha_percent = alpha_percent
         if save:
             self._save_alpha(alpha_percent)
+        self.update_alpha_menu()
+
+    def update_font_menu(self):
+        self.font_menu.delete(0, "end")
+        for size in reversed(range(10, 21)):
+            label = f"{'✓ ' if size == self.font_size else '  '}{size}"
+            self.font_menu.add_command(
+                label=label,
+                command=lambda s=size: self.set_font_size(s)
+            )
+
+    def update_alpha_menu(self):
+        self.alpha_menu.delete(0, "end")
+        for alpha in reversed(range(0, 101, 5)):
+            label = f"{'✓ ' if alpha == self.alpha_percent else '  '}{alpha}%"
+            self.alpha_menu.add_command(
+                label=label,
+                command=lambda a=alpha: self.set_alpha(a)
+            )
 
     # ——— About window —————————————————————————————————————————————————————
     def show_about(self):
@@ -245,18 +316,20 @@ class ClockOverlay:
         title_label = tk.Label(
             frame,
             text="Local Timer for Albion Online",
-            font=(self.font_name, 14, "normal"),
+            font=(self.font_name, 14, "normal"),  # ✅ font size 14, non-bold
             fg=self.fg_color,
             bg=self.inner_color
         )
         title_label.pack()
 
+        # ✅ Horizontal line after title
         separator = tk.Frame(frame, height=1, bg=self.fg_color)
         separator.pack(fill="x", pady=(2, 4))
 
+        # ✅ Ver. 1.25 before ©2025 Free
         credit_label = tk.Label(
             frame,
-            text="By TeslaWizard (Europe)\n©2025 Free",
+            text="By TeslaWizard (Europe)\nVer. 1.25\n©2025 Free",
             font=(self.font_name, 14, "normal"),
             fg=self.fg_color,
             bg=self.inner_color,
@@ -264,6 +337,7 @@ class ClockOverlay:
         )
         credit_label.pack()
 
+        # ✅ Anchored to bottom-right corner of timer
         about.update_idletasks()
         w = about.winfo_reqwidth()
         h = about.winfo_reqheight()
@@ -277,6 +351,7 @@ class ClockOverlay:
 
         def close_about(event=None):
             about.destroy()
+
         about.bind("<Button-1>", close_about)
         about.bind("<Escape>", close_about)
 
@@ -292,19 +367,22 @@ class ClockOverlay:
 
     # ——— Time update —————————————————————————————————————————————————————
     def update_time(self):
-        try:
-            now = datetime.now().strftime("%H:%M")
-            self.canvas.itemconfig(self.text_id, text=now)
-        except tk.TclError:
-            return  # window destroyed — safe exit
+        now = datetime.now()
+        display_time = now.strftime("%H:%M")
+        self.canvas.itemconfig(self.text_id, text=display_time)
 
-        # ✅ Simple, robust, and correct: works at 23:59 → 00:00
+        # ✅ FIXED: robust next-minute calculation (23:59→00:00 safe!)
+        next_min = now.replace(second=0, microsecond=0) + timedelta(minutes=1)
+
+        delay_ms = int((next_min - now).total_seconds() * 1000)
+        delay_ms = max(50, min(60_000, delay_ms))
+
         if self.update_job:
             try:
                 self.root.after_cancel(self.update_job)
             except Exception:
                 pass
-        self.update_job = self.root.after(60_000, self.update_time)
+        self.update_job = self.root.after(delay_ms, self.update_time)
 
 
 if __name__ == "__main__":
