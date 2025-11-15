@@ -514,9 +514,10 @@ class ClockOverlay:
         about.configure(bg=self.bg_color)
         frame = tk.Frame(about, bg=self.inner_color, padx=10, pady=6)
         frame.pack()
+        # ✅ Changed: "Local Timer" → "Local Time"
         title_label = tk.Label(
             frame,
-            text="Local Timer for Albion Online",
+            text="Local Time for Albion Online",
             font=(self.font_name, 14, "normal"),
             fg=self.fg_color,
             bg=self.inner_color
