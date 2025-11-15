@@ -4,7 +4,7 @@ The local time is simply displayed on top of all windows.
 
 You can adjust the Font, Alpha, change window size and move its location.
 
-F12 - show / hide window, you can change in config.ini
+F12 - show / hide window, hotkey you can change in config.ini
 
 <img width="511" height="427" alt="local time overlay" src="https://github.com/user-attachments/assets/8e2b0974-4491-47ca-af78-4f801233fb64" />
 <br>
